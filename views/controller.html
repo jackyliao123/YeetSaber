@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
+    <title>Controller</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            border: 0;
+            padding: 20px;
+            background-color: #202020;
+        }
+
+        #playerSecretId {
+            line-height: 50px;
+            font-size: 30px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        #buttonContainer {
+            width: 100%;
+        }
+
+        #btn {
+            font-size: 20px;
+            margin-top: 10px;
+            width: 100%;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        #err {
+            font-size: 20px;
+            color: #ff8080;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="err"></div>
+    <div id="buttonContainer">
+        <input type="text" id="playerSecretId" class="form-control" placeholder="Your Player ID">
+        <button id="btn" class="btn btn-primary" onclick="handleButtonClick()">Connect</button>
+    </div>
+    <p id="alpha"></p>
+    <script src="/js/NoSleep.min.js"></script>
+
+    <script>
+        var socket;
+        var opened = false;
+        var noSleep = new NoSleep();
+
+        // Wait for button press, with onclick event (this needed for permissions)
+        // On button press: 
+        //         - do permission request if required, and start deviceorientation
+        //         - create websocket
+        //         - send code to the server: {"op": "connect", "val": "ajdf9102383ojnfv"}
+        // On deviceorientation
+        //         - Compute quaternion, send quaternion to server using websocket: {"op": "devori", "val": [1, 0, 0, 0]}
+        //         - Maybe also send devicemotion (acceleration, angular velocity, that stuff): {"op": "devmot", "val": ???????}
+        // On websocket message
+        //         - Check to see if the server wants device vibration, and vibrate accordingly
+
+        if (window.location.hash.length >= 2) {
+            document.getElementById("playerSecretId").value = window.location.hash.substr(1);
+        }
+
+        var setError = function(txt) {
+            document.getElementById("err").innerText = txt;
+        }
+
+        function openFullscreen() {
+            if (document.requestFullscreen) {
+                document.requestFullscreen();
+            }
+            else if (document.mozRequestFullScreen) { /* Firefox */
+                document.mozRequestFullScreen();
+            }
+            else if (document.webkitRequestFullscreen) { /* Chrome, Safari and Opera */
+                document.webkitRequestFullscreen();
+            }
+            else if (document.msRequestFullscreen) { /* IE/Edge */
+                document.msRequestFullscreen();
+            }
+        }
+
+        var handleButtonClick = function() {
+            if (socket) {
+                socket.close();
+            }
+            socket = new WebSocket("wss://" + window.location.host + "/controller/" + document.getElementById("playerSecretId").value);
+            socket.sendJSON = (json) => socket.send(JSON.stringify(json));
+            setError("Connecting...");
+            openFullscreen();
+            noSleep.enable();
+            socket.onopen = (e) => {
+                document.getElementById("buttonContainer").classList.add("hidden");
+                opened = true;
+                setError("");
+            }
+            socket.onerror = (e) => {
+                setError("Socket error occurred");
+            }
+            socket.onmessage = (e) => {
+                var data = JSON.parse(e.data);
+                switch (data.op) {
+                    case "err":
+                        setError(data.val);
+                        break;
+                    case "vibrate":
+                        window.navigator.vibrate([parseInt(data.val)]);
+                        break;
+                }
+            }
+            socket.onclose = (e) => {
+                document.getElementById("buttonContainer").classList.remove("hidden");
+                opened = false;
+            }
+            if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                DeviceMotionEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            window.addEventListener("deviceorientation", handleOrientation, true);
+                        }
+                    })
+                    .catch(console.error);
+            }
+            else {
+                window.addEventListener("deviceorientation", handleOrientation, true);
+            }
+
+        }
+
+        var degtorad = Math.PI / 180; // Degree-to-Radian conversion
+        var q = [];
+
+        function getQuaternion(alpha, beta, gamma) {
+
+            var _x = beta ? beta * degtorad : 0; // beta value
+            var _y = gamma ? gamma * degtorad : 0; // gamma value
+            var _z = alpha ? alpha * degtorad : 0; // alpha value
+
+            var cX = Math.cos(_x / 2);
+            var cY = Math.cos(_y / 2);
+            var cZ = Math.cos(_z / 2);
+            var sX = Math.sin(_x / 2);
+            var sY = Math.sin(_y / 2);
+            var sZ = Math.sin(_z / 2);
+
+            // ZXY quaternion construction.
+            var w = cX * cY * cZ - sX * sY * sZ;
+            var x = sX * cY * cZ - cX * sY * sZ;
+            var y = cX * sY * cZ + sX * cY * sZ;
+            var z = cX * cY * sZ + sX * sY * cZ;
+            return [w, x, y, z];
+        }
+
+        function handleOrientation(event) {
+            var absolute = event.absolute;
+            var alpha = event.alpha;
+            var beta = event.beta;
+            var gamma = event.gamma;
+            q = getQuaternion(alpha, beta, gamma);
+
+            // document.getElementById("alpha").innerHTML = JSON.stringify(q);
+            if (opened) {
+                socket.send(JSON.stringify(q));
+            }
+        }
+    </script>
+</body>
+
+</html>

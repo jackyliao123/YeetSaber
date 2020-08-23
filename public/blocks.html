@@ -1,0 +1,152 @@
+<html>
+
+<head>
+	<title>My first three.js app</title>
+	<style>
+		body {
+			margin: 0;
+		}
+
+		canvas {
+			display: block;
+		}
+	</style>
+</head>
+
+<body>
+	<audio id="audio" src="/song.egg"></audio>
+	<script src="/js/three.min.js"></script>
+	<script>
+	
+		var audioDOM = document.getElementById("audio");
+        
+        document.onclick = function() {
+            audioDOM.play();
+        }
+        
+        audioDOM.volume = 0.01;
+	
+		var scene = new THREE.Scene();
+		var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+		var renderer = new THREE.WebGLRenderer();
+		renderer.setSize(window.innerWidth, window.innerHeight);
+		document.body.appendChild(renderer.domElement);
+
+		meshFloor = new THREE.Mesh(
+			new THREE.PlaneGeometry(10, 20, 10, 20),
+			new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true })
+		);
+		meshFloor.rotation.x -= Math.PI / 2;
+		scene.add(meshFloor);
+
+
+		var material = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true });
+
+		camera.position.z = 10;
+		camera.position.y = 5;
+		camera.lookAt(0, 0, 0);
+
+		// var blocks = [];
+		var blocks = {};
+		//var times = [1000, 2000, 3000, 4500, 5000, 6500];
+
+		let idctr = 122;
+
+		var displayingBlockMeshes = {}; // Mapping between block ID and THREEE.JS Mesh
+
+		var startTime = Date.now();
+		var f = 0;
+		var cutDirections = [0, 4, 6, 2, 7, 1, 5, 3];
+
+		// id to block mappings
+		function getBlocksInTimeInterval(startTime, endTime) {
+			var inInterval = {};
+			Object.keys(blocks).forEach((blockId) => {
+				let b = blocks[blockId];
+				var time = b["_time"];
+				if (startTime <= time && time <= endTime) {
+					inInterval[b.id] = b;
+				}
+			});
+			return inInterval;
+		}
+
+		var displayBlocks = { /*time: time, block: BoxGeometry*/ };
+
+		var movingGroup = new THREE.Group();
+
+		scene.add(movingGroup);
+
+		var xhttp = new XMLHttpRequest();
+		xhttp.onreadystatechange = function() {
+			if (this.readyState == 4 && this.status == 200) {
+				let notes = JSON.parse(xhttp.responseText)["_notes"];
+				notes.forEach(b => {
+					b.id = idctr++;
+					b["_time"] = b["_time"] / (165 / 60);
+					b["_lineIndex"] -= 1.5;
+					blocks[b.id] = b;
+				});
+			}
+		};
+		xhttp.open("GET", "/ExpertPlus.dat", true);
+		xhttp.send();
+
+		var animate = () => {
+			requestAnimationFrame(animate);
+			//console.log(Date.now() - startTime);
+
+			var songTime = audioDOM.currentTime;//(Date.now() - startTime) / 1000.0;
+
+			var interval = 3;
+
+			var visibleBlocks = getBlocksInTimeInterval(songTime, songTime + interval);
+			console.log(songTime);
+			console.log(visibleBlocks);
+
+			var distance = 100;
+
+			movingGroup.position.z = songTime * distance / interval;
+
+			// Delete all old blocks that are no longer visible from the scene
+			Object.keys(displayBlocks).forEach(blockId => {
+				if (visibleBlocks[blockId] === undefined) {
+					movingGroup.remove(displayBlocks[blockId]);
+					console.log("Detele block info: ", blocks[blockId], songTime, blockId);
+					console.log("Delete block: " + blockId + ", position=" + displayBlocks[blockId].position.z + ", movingGroup=" + movingGroup.position.z);
+					delete displayBlocks[blockId];
+				}
+			});
+
+			// Create new blocks that are previously not visible and have become visible
+			Object.keys(visibleBlocks).forEach(blockId => {
+				if (displayBlocks[blockId] === undefined) {
+					console.log("Spawn block: " + blockId);
+					let block = blocks[blockId];
+					let geometry = new THREE.BoxGeometry(1, 1, 1);
+					let color = Math.random() * 0xffffff;
+
+					for (let i = 0; i < geometry.faces.length; i++) {
+						geometry.faces[i].color.setHex(color);
+					}
+
+					var cube = new THREE.Mesh(geometry, material);
+					cube.position.z = -parseFloat(block["_time"]) * distance / interval;
+					cube.position.x = parseFloat(block["_lineIndex"]);
+					cube.position.y = parseFloat(block["_lineLayer"]);
+					cube.rotation.z = parseFloat(cutDirections[block["_cutDirection"]] * Math.PI / 4);
+					movingGroup.add(cube);
+
+					displayBlocks[blockId] = cube;
+				}
+			});
+
+			renderer.render(scene, camera);
+		};
+
+		animate();
+	</script>
+</body>
+
+</html>

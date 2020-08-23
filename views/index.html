@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Yeet Saber</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
+    <style>
+        body {
+            margin: 0;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+
+        #score_combo {
+            position: absolute;
+            top: 10%;
+            left: 5%;
+            color: white;
+            text-align: center;
+            z-index: 100;
+            display: block;
+        }
+
+        #playerSecretQR {
+            margin-left: 10px;
+            max-width: 50px;
+        }
+        #playerSecretQR2{padding: 5%; background-color: white; text-align: center;}
+
+        #OtherPlayerScoresDiv {
+            position: absolute;
+            top: 10%;
+            right: 5%;
+            color: white;
+            text-align: center;
+            z-index: 100;
+            display: block;
+        }
+        #controllerStatus2 {
+
+           width: 100px;
+           margin-left: 5%;
+            color: white;
+           
+        }
+
+        .container {
+            position: absolute;
+            padding: 10%;
+            z-index: 50;
+            display: block;
+        }
+
+        #three {
+            z-index: 60;
+            position: absolute;
+        }
+    </style>
+</head>
+
+<body>
+    <script src="/js/three.min.js"></script>
+    <script src="/js/qr.min.js"></script>
+    <div id="connecting" class="hideable">
+        Connecting to server...
+    </div>
+
+    <div class="container" id="roomsAndQRCodes">
+        <h2 id="YEET">Yeet Saber</h2>
+        <div class="row">
+            <div class="col-md">
+                <div id="createOrJoinRoom" class="hidden hideable">
+                    <button class="btn btn-primary" id="createRoom">Create Room</button>
+                    <p></p>
+
+                    <form id="joinRoom">
+                        <input class="form-control" type="text" id="roomInput" placeholder="Room ID to Join">
+                        <button class="btn btn-primary" id="joinRoom">Join Room</button>
+                        <p id="joinError" class="hidden">Failed to join room</p>
+                    </form>
+
+                </div>
+                <form id="setDisplayName" class="hidden hideable">
+                    <input class="form-control" type="text" id="playerName" placeholder="Your Display Name">
+                    <button class="btn btn-primary" id="enterName">Submit Name</button>
+                </form>
+
+                <form id="fileForm" class="hidden">
+                    Upload a BeatSaber map in .zip format:
+                    <input class="form-control" type="file" id="fileInput">
+                    <button class="btn btn-primary" id="fileSubmitButton">Submit File</button>
+                    <p id="fileUploading" class="hidden">File is uploading...</p>
+                    <p id="fileUploadDone" class="hidden">Upload finished!</p>
+                </form>
+
+
+
+                <div id="difficultyForm" class="hidden">
+                    <select id="difficultySelect">
+                        <option value="" disabled selected>Select difficulty</option>
+                    </select>
+                    <button class="btn btn-primary" id="difficultySubmitButton">Select</button>
+                    <p id="difficultySelectLoading" class="hidden">Beat map is loading...</p>
+
+                </div>
+                <br>
+
+                <p id="playerSecretId"></p>
+                <p id="playerSecretQR"></p>
+                <p id="controllerStatus"></p>
+                <button class="btn btn-primary" id="disconnectPlayer">Quit</button>
+            </div>
+            <div class="col-md">
+
+
+                <p id="currentRoomId"></p>
+                <p id="currentName"></p>
+                <p id="currentHost"></p>
+                <ul id="currentPlayers"></ul>
+
+
+                <button class="btn btn-primary hidden" id="startButton">Start</button>
+
+            </div>
+        </div>
+    </div>
+
+    <div id="three" class="hidden">
+        <div id="score_combo">
+            <p id="score">Score: 0</p>
+            <p id="combo">Combo: 0</p>
+            <button class="btn btn-primary" id="disconnectPlayer2">Quit</button>
+            <button class="btn btn-primary hidden" id="stopButton">Stop Song</button>
+            <div id="playerSecretQR2"></div>
+            <p id="controllerStatus2"></p>
+        </div>
+        <div id="OtherPlayerScoresDiv">
+            <p>All Player Scores</p>
+            <ul id="otherPlayerScores">
+            </ul>
+        </div>
+    </div>
+
+    <div id="rotatingCube">
+
+    </div>
+
+    <audio id="audio" src="/Flower Dance.egg"></audio>
+
+    <script>
+        var audioDOM = document.getElementById("audio");
+        var blocks = {};
+
+        function setVisible(id) {
+            Array.from(document.getElementsByClassName("hideable")).forEach(e => e.classList.add("hidden"));
+            if (id !== undefined) {
+                document.getElementById(id).classList.remove("hidden");
+            }
+        }
+        document.getElementById("joinRoom").onsubmit = function(e) {
+            let roomId = document.getElementById("roomInput").value;
+            socket.sendJSON({ "op": "joinRoom", "val": roomId });
+            return false;
+        }
+        document.getElementById("createRoom").onclick = function(e) {
+            socket.sendJSON({ "op": "createRoom" });
+            return false;
+        }
+        document.getElementById("setDisplayName").onsubmit = function(e) {
+            let playerName = document.getElementById("playerName").value;
+            socket.sendJSON({ "op": "setName", "val": playerName });
+            return false;
+        }
+
+        function quit(e) {
+            socket.sendJSON({ "op": "disconnectPlayer", "val": user.secretId });
+            socket.close();
+            location.reload();
+            return false;
+        }
+
+        function stopSong(e) {
+            socket.sendJSON({ "op": "stop" });
+            return false;
+        }
+        // lmao rip CSS, 2 quit buttons
+        document.getElementById("disconnectPlayer").onclick = quit;
+        document.getElementById("disconnectPlayer2").onclick = quit;
+        document.getElementById("stopButton").onclick = stopSong;
+
+        // spinning cube for loading page?
+        let cubeScene = new THREE.Scene();
+        cubeScene.background = new THREE.Color(0xf0f0f0);
+        cubeScene.add(new THREE.AmbientLight(0xffffff, 0.3));
+        var dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        dirLight.position.set(0, 1, 1);
+        cubeScene.add(dirLight, dirLight.target);
+
+        let cubeCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+        let cubeRenderer = new THREE.WebGLRenderer({ antialias: true });
+        cubeRenderer.setSize(window.innerWidth, window.innerHeight);
+        
+        document.getElementById("rotatingCube").appendChild(cubeRenderer.domElement);
+        let cubeGeometry = new THREE.SphereGeometry(1.5, 10, 10);
+        for (let i = 0; i < cubeGeometry.faces.length; i++) {
+            cubeGeometry.faces[i].color.setHex(Math.random() * 0xffffff);
+        }
+
+        // let cubeMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true });
+        let cubeMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff, vertexColors: true });
+
+        let rotatingCube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+        rotatingCube.position.y = -1.5;
+        rotatingCube.position.x = 1;
+        cubeScene.add(rotatingCube);
+
+        cubeCamera.position.z = 5;
+        cubeCamera.position.y = -1;
+
+        cubeRenderer.setAnimationLoop(() => {
+
+            if (user.controllerStatus) {
+                rotatingCube.setRotationFromQuaternion(new THREE.Quaternion(1 / Math.sqrt(2), 0, 0, -1 / Math.sqrt(2)).multiply(new THREE.Quaternion(q[1], q[2], q[3], q[0])));
+            }
+            else {
+                rotatingCube.rotation.z += 0.01;
+                rotatingCube.rotation.x += 0.01;
+                rotatingCube.rotation.y += 0.01;
+            }
+            cubeRenderer.render(cubeScene, cubeCamera);
+        });
+
+
+
+
+
+        var q = [1, 0, 0, 0];
+        var user = {
+            get isHost() {
+                return this.isHost_;
+            },
+            set isHost(s) {
+                this.isHost_ = s;
+            },
+            get id() {
+                return this.id_;
+            },
+            set id(s) {
+                this.id_ = s;
+            },
+            get secretId() {
+                return this.secretId_;
+            },
+            set secretId(s) {
+                this.secretId_ = s;
+                window.localStorage["secretId"] = s;
+                //document.getElementById("playerSecretId").innerText = s !== undefined ? ("Player secret ID: " + s) : "";
+                document.getElementById("playerSecretQR").innerHTML = "";
+                document.getElementById("playerSecretQR2").innerHTML = "";
+
+                new QRCode(document.getElementById("playerSecretQR"), { text: window.location.protocol + "//" + window.location.host + "/c#" + s, width: 100, height: 100 });
+                new QRCode(document.getElementById("playerSecretQR2"), { text: window.location.protocol + "//" + window.location.host + "/c#" + s, width: 100, height: 100 });
+
+            },
+            get roomId() {
+                return this.roomId_;
+            },
+            set roomId(s) {
+                this.roomId_ = s;
+                document.getElementById("currentRoomId").innerText = s !== undefined ? ("Room ID: " + s) : "";
+            },
+            get name() {
+                return this.name_;
+            },
+            set name(s) {
+                this.name_ = s;
+                document.getElementById("currentName").innerText = s !== undefined ? ("Name: " + s) : "";
+            },
+            set playerList(s) {
+                this.playerList_ = s;
+                let cpdom = document.getElementById("currentPlayers");
+                cpdom.innerText = "Players in Room:";
+                s.forEach(e => {
+                    var nameDom = document.createElement("li");
+                    nameDom.innerText = (e.name != undefined ? e.name : e.id) + (e.isHost ? " (Host)" : "");
+
+                    cpdom.appendChild(nameDom);
+                });
+            },
+            get playerList() {
+                return this.playerList_;
+            },
+            set controllerStatus(s) {
+                this.controllerStatus_ = s;
+                let link = location.protocol + "//" + location.host + "/c";
+                if(s) document.getElementById("playerSecretQR2").classList.add("hidden");
+                document.getElementById("controllerStatus").innerHTML = (s ? "Controller connected!" : "On your phone, scan the QR code or visit <a href=\"" + link + "\">" + link + "</a> and enter <pre style=\"font-size: 20px\">" + this.secretId_ + "</pre>");
+                document.getElementById("controllerStatus2").innerHTML = (s ? "Controller connected!" : "On your phone, scan the QR code or visit <a href=\"" + link + "\">" + link + "</a> and enter " + this.secretId_ );
+            },
+            get controllerStatus() {
+                return this.controllerStatus_;
+            }
+        };
+
+        document.getElementById("fileForm").onsubmit = () => {
+            document.getElementById("fileUploading").classList.remove("hidden");
+            
+            let input = document.getElementById("fileInput");
+            let file = input.files[0];
+
+            let reader = new FileReader();
+
+            reader.readAsBinaryString(file);
+
+            reader.onload = function() {
+                socket.send(reader.result);
+            };
+
+            reader.onerror = function() {
+                console.log(reader.error);
+            };
+            return false;
+        };
+
+        document.getElementById("difficultySubmitButton").onclick = () => {
+            //console.log(document.getElementById("difficultySelect").value);
+            document.getElementById("difficultySelectLoading").classList.remove("hidden");
+            socket.sendJSON({ "op": "chooseMap", "val": document.getElementById("difficultySelect").value });
+            document.getElementById("startButton").classList.add("hidden");
+        }
+
+        user.secretId = window.localStorage["secretId"];
+        // Wait for button press, with onclick event (this needed for permissions)
+        // On button press: 
+        //     - do permission request if required, and start deviceorientation
+        //     - create websocket
+        // On deviceorientation
+        //     - Compute quaternion, send quaternion to server using websocket
+        //     - Maybe also send devicemotion (acceleration, angular velocity, that stuff)
+        // On websocket message
+        //     - Check to see if the server wants device vibration, and vibrate accordingly
+        let socket = new WebSocket("wss://" + window.location.host + "/play");
+        socket.sendJSON = (json) => socket.send(JSON.stringify(json));
+        socket.onopen = function() {
+            setVisible("createOrJoinRoom");
+            socket.sendJSON({ op: "connect", val: user.secretId });
+            setInterval(() => {
+                socket.sendJSON({ op: "ping" });
+            }, 1000);
+        }
+        socket.onmessage = function(msg) {
+            var data = JSON.parse(msg.data);
+            //console.log(data);
+            switch (data.op) {
+                case "controller":
+                    q = data.val;
+                    break;
+                case "connectSuccess":
+                    user.secretId = data.val;
+                    user.id = data.id;
+                    setVisible("createOrJoinRoom");
+                    break;
+                case "reconnectSuccess":
+                    user.roomId = data.val.room;
+                    user.name = data.val.name;
+                    user.id = data.val.id;
+
+                    if (user.roomId) {
+                        socket.sendJSON({ "op": "joinRoom", "val": user.roomId });
+                    }
+                    else {
+                        setVisible("createOrJoinRoom");
+                    }
+                    break;
+                case "setNameSuccess":
+                    user.name = data.val;
+                    setVisible();
+                    break;
+                case "createRoomSuccess":
+                    user.roomId = data.val;
+                    socket.sendJSON({ "op": "joinRoom", "val": user.roomId });
+                   
+                    break;
+                case "joinRoomSuccess":
+                    user.roomId = data.val;
+                    user.isHost = data.isHost;
+                    for (let j = 0; j < user.playerList.length; j++) {
+                        if (user.playerList[j].isHost && user.playerList[j].id == user.id) { user.isHost = true;
+                            console.log(user.id); }
+                    }
+                    if (user.name) {
+                        setVisible();
+                    }
+                    else if (user.roomId) { // why the else if...
+                        // if(user.name) {setVisible("setDisplayName");} else {setVisible();}
+                        setVisible("setDisplayName");
+                    }
+                    if (user.isHost) {
+                        document.getElementById("fileForm").classList.remove("hidden");
+                        document.getElementById("difficultyForm").classList.remove("hidden");
+                        document.getElementById("stopButton").classList.remove("hidden");
+                         document.getElementById("currentHost").innerText = "You are the host!";
+                    }
+                    if (!user.isHost) { user.isHost = false;
+                        document.getElementById("currentHost").innerText = "Wait for the host to start the game!"; }
+                    break;
+                case "joinRoomFail":
+                    console.log("join room fail");
+                    document.getElementById("joinError").classList.remove("hidden");
+                    break;
+                case "playerListUpdate":
+                    user.playerList = data.val;
+                    break;
+                case "controllerStatus":
+                    user.controllerStatus = data.val;
+                    break;
+                case "map":
+                    console.log("map!!!");
+                     document.getElementById("difficultySelectLoading").classList.add("hidden");
+                    blocks = {};
+                    Object.keys(displayBlocks).forEach(blockId => {
+                        movingGroup.remove(displayBlocks[blockId]);
+                    });
+                    displayBlocks = {};
+                    let notes = data.map;
+
+                    notes.forEach(b => {
+                        if (b["_type"] === 0) {
+                            return;
+                        }
+                        b.id = idctr++;
+                        blocks[b.id] = b;
+                    });
+                    console.log(data.map);
+                    audioDOM.setAttribute("src", "data:audio/ogg;base64," + data.audio);
+                    audioDOM.load();
+
+                    if (user.isHost) document.getElementById("startButton").classList.remove("hidden");
+                    break;
+                case "start":
+                    document.getElementById("three").classList.remove("hidden");
+                    cubeRenderer.setAnimationLoop(null);
+                    cubeScene.dispose();
+                    document.getElementById("rotatingCube").classList.add("hidden");
+                    document.getElementById("roomsAndQRCodes").classList.add("hidden");
+                    document.getElementById("disconnectPlayer").style.display = "block";
+                    audioDOM.play();
+                    break;
+                case "uploadSuccess":
+                    console.log("upload success");
+                    document.getElementById("fileUploading").classList.add("hidden");
+//                    document.getElementById("fileUploadDone").classList.remove("hidden");
+                    // val is the names of beatmaps
+                    document.getElementById("difficultySelect").innerHTML = "<option value=\"\" disabled selected>Select difficulty</option>";
+                    data.val.forEach(n => {
+                        let opt = document.createElement("option");
+                        opt.appendChild(document.createTextNode(n));
+                        opt.value = n;
+                        document.getElementById("difficultySelect").appendChild(opt);
+                    })
+                    break;
+                case "scoreChange":
+                    user.playerList.forEach(player => {
+                        if (player.id == data.id) {
+                            player.score = data.val;
+                        }
+                    });
+                    let cpdom = document.getElementById("otherPlayerScores");
+                    cpdom.innerHTML = "";
+                    user.playerList.forEach(e => {
+                        var nameDom = document.createElement("li");
+                        nameDom.innerText = (e.name != undefined ? e.name : e.id) + ": " +
+                            (e.score != undefined ? e.score : 0);
+                        cpdom.appendChild(nameDom);
+                    });
+                    user.playerList = user.playerList;
+                    break;
+                case "stop":
+                    location.reload();
+                    break;
+            }
+        };
+        
+        document.getElementById("fileSubmitButton").onclick = ()=>{document.getElementById("fileUploadDone").classList.add("hidden");}
+
+        document.getElementById("startButton").onclick = () => {
+            console.log("start");
+            document.getElementById("fileUploadDone").classList.add("hidden");
+            socket.sendJSON({ "op": "start" });
+        }
+
+        var score = 0;
+
+        var scene = new THREE.Scene();
+        var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        
+        scene.background = new THREE.Color(0x000000);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+        var dirLight2 = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight2.position.set(0, 2, 1);
+
+        scene.add(dirLight2, dirLight2.target);
+        //var helper = new THREE.CameraHelper(dirLight2.shadow.camera);
+        //scene.add(helper);
+
+        var renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById("three").appendChild(renderer.domElement);
+        
+                
+        window.onresize = function() {
+            cubeRenderer.setSize(window.innerWidth, window.innerHeight);
+            cubeCamera.aspect = window.innerWidth / window.innerHeight;
+            cubeCamera.updateProjectionMatrix();
+            
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+        }
+
+        var meshFloor = new THREE.Mesh(
+            new THREE.PlaneGeometry(2, 20, 2, 20),
+            new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe:true })
+        );
+        meshFloor.receiveShadow = true;
+        meshFloor.rotation.x -= Math.PI / 2;
+        meshFloor.scale.multiplyScalar(10);
+
+        scene.add(meshFloor);
+
+
+        var material = new THREE.MeshPhongMaterial({ color: 0xffffff, vertexColors: true });
+
+        camera.position.z = 5;
+        camera.position.y = 3;
+        camera.lookAt(0, 0, 0);
+
+
+
+
+        let idctr = 122;
+
+        var displayingBlockMeshes = {}; // Mapping between block ID and THREEE.JS Mesh
+
+        var startTime = Date.now();
+        var f = 0;
+        var cutDirections = [0, 4, 6, 2, 7, 1, 5, 3];
+        // up down right left top-right top-left bottom-right bottom-left
+        var angularVelocities = [
+            new THREE.Vector3(1, 0, 0),
+            new THREE.Vector3(-1, 0, 0),
+            new THREE.Vector3(0, -1, 0),
+            new THREE.Vector3(0, 1, 0),
+            new THREE.Vector3(1 / Math.sqrt(2), -1 / Math.sqrt(2), 0),
+            new THREE.Vector3(1 / Math.sqrt(2), 1 / Math.sqrt(2), 0),
+            new THREE.Vector3(-1 / Math.sqrt(2), -1 / Math.sqrt(2), 0),
+            new THREE.Vector3(-1 / Math.sqrt(2), 1 / Math.sqrt(2), 0),
+        ]
+
+        function lowerBound(keys, startTime) { // smallest element >= x
+            let lo = 0;
+            let hi = keys.length - 1;
+            while (lo <= hi) {
+                let mid = lo + Math.floor((hi - lo) / 2);
+                if (blocks[keys[mid]]["_time"] < startTime) lo = mid + 1;
+                else {
+                    if (mid == 0 || blocks[keys[mid - 1]]["_time"] < startTime) return mid;
+                    else hi = mid - 1;
+                }
+            }
+            return -1;
+        }
+
+        function getBlocksInTimeInterval(startTime, endTime) {
+            var inInterval = {};
+            let keys = Object.keys(blocks);
+            let startIndex = lowerBound(keys, startTime);
+            if (startIndex < 0) return {};
+            for (let i = startIndex; i < keys.length; i++) {
+                let b = blocks[keys[i]];
+                var time = b["_time"];
+                if (time <= endTime) {
+                    inInterval[b.id] = b;
+                }
+                else break;
+            }
+            return inInterval;
+        }
+        // function getBlocksInTimeInterval(startTime, endTime) {
+        //     var inInterval = {};
+        //     Object.keys(blocks).forEach((blockId) => {
+        //         let b = blocks[blockId];
+        //         var time = b["_time"];
+        //         if (startTime <= time && time <= endTime) {
+        //             inInterval[b.id] = b;
+        //         }
+        //     });
+        //     return inInterval;
+        // }
+
+        var displayBlocks = { /*time: time, block: BoxGeometry*/ };
+
+        var movingGroup = new THREE.Group();
+
+        scene.add(movingGroup);
+
+        // var xhttp = new XMLHttpRequest();
+        // xhttp.onreadystatechange = function() {
+        //     if (this.readyState == 4 && this.status == 200) {
+        //         let notes = JSON.parse(xhttp.responseText)["_notes"];
+        //         notes.forEach(b => {
+        //             if(b["_type"] === 0) {
+        //                 return;
+        //             }
+        //             b.id = idctr++;
+        //             b["_time"] = b["_time"] / (100 / 60);
+        //             blocks[b.id] = b;
+        //         });
+        //     }
+        // };
+        // xhttp.open("GET", "/ExpertPlus.dat", true);
+        // xhttp.send();
+
+        audioDOM.volume = 0.1;
+
+        var firstClick = true;
+
+        document.onclick = function() {
+            if (firstClick) {
+                audioDOM.play();
+                audioDOM.pause();
+                firstClick = false;
+            }
+        }
+
+        var geometry = new THREE.BoxGeometry(0.4, 4, 0.4);
+        for (var i = 0; i < geometry.faces.length; i++) {
+            geometry.faces[i].color.setHex(Math.random() * 0xffffff);
+        }
+
+        var cube = new THREE.Mesh(geometry, material);
+        scene.add(cube);
+
+        var prevQuaternion = new THREE.Quaternion(0, 0, 0, 1);
+
+        var offsetAmount = 0;
+        var prevVec = new THREE.Vector3(0, 1, 0);
+
+        //var a1 = new THREE.ArrowHelper(new THREE.Vector3(2, 0, 0), new THREE.Vector3(0, 0, 0), 10, 0xff00ff);
+        //scene.add(a1);
+
+        var a2 = new THREE.ArrowHelper(new THREE.Vector3(2, 0, 0), new THREE.Vector3(0, 0, 0), 1, 0x0000ff);
+        scene.add(a2);
+
+        var a3 = new THREE.ArrowHelper(new THREE.Vector3(2, 0, 0), new THREE.Vector3(0, 0, 0), 1, 0xff0000);
+        scene.add(a3);
+
+        var actualRotation = new THREE.Quaternion(0, 0, 0, 1);
+
+        var combo = 0;
+
+        var animate = () => {
+
+            // camera.position.x = Math.sin(Date.now() / 1000) * 5;
+            // camera.position.z = Math.cos(Date.now() / 1000) * 5;
+            // camera.position.y = Math.cos(Date.now() / 2000) * 1;
+            // camera.lookAt(0, 0, 0);
+
+            requestAnimationFrame(animate);
+
+            var quaternion = new THREE.Quaternion(1 / Math.sqrt(2), 0, 0, -1 / Math.sqrt(2)).multiply(new THREE.Quaternion(q[1], q[2], q[3], q[0]));
+
+            var angVec = new THREE.Vector3(0, 1, 0).applyQuaternion(quaternion);
+            var angHelperVec = new THREE.Vector3(0, 0, -1).applyQuaternion(quaternion);
+            var rot = Math.atan2(angVec.z, angVec.x);
+
+            //a1.setDirection(angHelperVec);
+            //a1.setLength(angHelperVec.length() * 100);
+            if (angHelperVec.y > 0) {}
+            if (rot == rot) {
+                while (offsetAmount - rot > Math.PI) {
+                    offsetAmount -= 2 * Math.PI;
+                }
+                while (offsetAmount - rot < -Math.PI) {
+                    offsetAmount += 2 * Math.PI;
+                } // both of these are to prevent 179 to -179 wrap around issues
+                offsetAmount += (rot - offsetAmount) / 30;
+            }
+
+            quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), offsetAmount + Math.PI / 2));
+
+            actualRotation.slerp(quaternion, 0.7);
+
+            let vecc = new THREE.Vector3(0, 1, 0).applyQuaternion(actualRotation);
+
+            let cross = vecc.clone().cross(prevVec);
+
+            //a1.setDirection(cross);
+            //a1.setLength(1);
+
+            a2.setDirection(vecc);
+            a2.setLength(vecc.length() * 100);
+
+            a3.setDirection(prevVec);
+            a3.setLength(prevVec.length() * 100);
+
+            prevVec.lerp(vecc, 0.1);
+
+            //console.log(quaternion);
+
+            //var diff = prevQuaternion.clone().conjugate().multiply(quaternion);
+
+            //prevQuaternion.slerp(quaternion, 0.1);
+
+            cube.setRotationFromQuaternion(actualRotation);
+            //console.log(Date.now() - startTime);
+
+            var songTime = audioDOM.currentTime; //(Date.now() - startTime) / 1000.0;
+
+            var interval = 3;
+
+            var visibleBlocks = getBlocksInTimeInterval(songTime - 0.2, songTime + interval);
+
+            var distance = 100;
+
+            movingGroup.position.z = songTime * distance / interval;
+            meshFloor.position.z = (songTime * distance / interval) % 10;
+
+            var hittableBlocks = getBlocksInTimeInterval(songTime - 0.1, songTime + 0.1);
+            Object.keys(hittableBlocks).forEach(blockId => {
+                let block = blocks[blockId];
+                let dot;
+                if (angularVelocities[block["_cutDirection"]]) {
+                    dot = angularVelocities[block["_cutDirection"]].clone().dot(cross);
+                }
+                else {
+                    dot = -cross.length();
+                }
+                if (dot < -0.1 && !block.hit) {
+                    socket.sendJSON({ op: "vibrate", val: 100 });
+                    score ++;//= Math.min((-dot / 0.1) * 25, 100) * (1 + combo / 50);
+                    //score = Math.floor(score);
+                    socket.sendJSON({ op: "scoreChange", val: score });
+
+                    // send socket every time score changes?
+                    socket.sendJSON({ "op": "scoreChange", "val": score });
+
+                    combo++;
+
+                    block.hit = true;
+                }
+            });
+
+            // Delete all old blocks that are no longer visible from the scene
+            Object.keys(displayBlocks).forEach(blockId => {
+                if (visibleBlocks[blockId] === undefined && !blocks[blockId].hit) {
+                    combo = 0;
+                }
+
+                if (visibleBlocks[blockId] === undefined || blocks[blockId].hit) {
+                    movingGroup.remove(displayBlocks[blockId]);
+                    delete displayBlocks[blockId];
+                }
+            });
+
+            document.getElementById("score").innerText = "Score: " + score;
+            document.getElementById("combo").innerText = "Combo: " + combo;
+
+
+            // Create new blocks that are previously not visible and have become visible
+            Object.keys(visibleBlocks).forEach(blockId => {
+                if (displayBlocks[blockId] === undefined && !blocks[blockId].hit) {
+                    console.log("Spawn block: " + blockId);
+
+                    var geom = new THREE.Geometry();
+                    var triangle_size = 0.51;
+                    var v1 = new THREE.Vector3(-triangle_size, 0.2, triangle_size);
+                    var v2 = new THREE.Vector3(0, triangle_size, triangle_size);
+                    var v3 = new THREE.Vector3(triangle_size, 0.2, triangle_size);
+
+                    geom.vertices.push(v1);
+                    geom.vertices.push(v3);
+                    geom.vertices.push(v2);
+                    
+                    var triFace = new THREE.Face3(0, 1, 2);
+                    
+                    triFace.color.setHex(0xffffff);
+
+                    geom.faces.push(triFace);
+                    var mesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true }));
+
+                    let block = blocks[blockId];
+                    let geometry = new THREE.BoxGeometry(1, 1, 1);
+
+                    let color = [0xff0000, 0x2080ff][block["_type"]]; //Math.random() * 0xffffff;
+
+                    for (let i = 0; i < geometry.faces.length; i++) {
+                        geometry.faces[i].color.setHex(color);
+                    }
+
+                    var cube = new THREE.Mesh(geometry, material);
+                    cube.position.z = -parseFloat(block["_time"]) * distance / interval;
+                    cube.position.x = parseFloat(block["_lineIndex"] - 1.5);
+                    cube.position.y = parseFloat(block["_lineLayer"] + 0.5);
+                    if (cutDirections[block["_cutDirection"]] !== undefined) {
+                        cube.rotation.z = parseFloat(cutDirections[block["_cutDirection"]] * Math.PI / 4); // euler angle
+                        cube.add(mesh);
+                    }
+                    cube.castShadow = true;
+                    movingGroup.add(cube);
+
+                    displayBlocks[blockId] = cube;
+                }
+            });
+
+            renderer.render(scene, camera);
+        };
+
+        animate();
+
+
+
+
+
+
+
+
+
+
+
+        /*// three js tutorial
+        var scene = new THREE.Scene();
+        var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+        var renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // https://stackoverflow.com/questions/14924187/change-the-colors-of-a-cubes-faces
+        var geometry = new THREE.BoxGeometry(1, 1, 1);
+        for (var i = 0; i < geometry.faces.length; i++) {
+            geometry.faces[i].color.setHex(Math.random() * 0xffffff);
+        }
+
+        var material = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true });
+
+        var cube = new THREE.Mesh(geometry, material);
+        scene.add(cube);
+
+        camera.position.z = 5;
+        
+        var listener = new THREE.AudioListener();
+        camera.add( listener );
+        
+        var audioDOM = document.getElementById("audio");
+        
+        document.onclick = function() {
+            audioDOM.play();
+        }
+
+        function animate() {
+            console.log(audioDOM.currentTime);
+            requestAnimationFrame(animate);
+            var quaternion = new THREE.Quaternion(q[1], q[2], q[3], -q[0]);
+            cube.setRotationFromQuaternion(quaternion);
+            renderer.render(scene, camera);
+        }
+        animate();*/
+    </script>
+</body>
+
+</html>

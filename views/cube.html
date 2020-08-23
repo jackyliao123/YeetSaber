@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>My first thREEEEE.js app</title>
+    <style>
+        body {
+            margin: 0;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <script src="/three.js"></script>
+    <p id="alpha"></p>
+    <p id="beta"></p>
+<p id="gamma"></p>
+<p id="quaternion"></p>
+    <script>
+        // Wait for button press, with onclick event (this needed for permissions)
+        // On button press: 
+        //     - do permission request if required, and start deviceorientation
+        //     - create websocket
+        // On deviceorientation
+        //     - Compute quaternion, send quaternion to server using websocket
+        //     - Maybe also send devicemotion (acceleration, angular velocity, that stuff)
+        // On websocket message
+        //     - Check to see if the server wants device vibration, and vibrate accordingly
+        // let socket = new WebSocket("wss://" + location.host + "/play");
+
+        // socket.sendJSON = (json) => socket.send(JSON.stringify(json));
+        // socket.sendJSON({op: "connect", val: 1});
+        // socket.onmessage = function(msg) {
+        //     console.log(msg);
+        // };
+
+        // three js tutorial
+        var scene = new THREE.Scene();
+        var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+        var renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // https://stackoverflow.com/questions/14924187/change-the-colors-of-a-cubes-faces
+        var geometry = new THREE.BoxGeometry(1, 1, 1);
+        for (var i = 0; i < geometry.faces.length; i++) {
+            geometry.faces[i].color.setHex(Math.random() * 0xffffff);
+        }
+
+        var material = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true });
+
+        var cube = new THREE.Mesh(geometry, material);
+        scene.add(cube);
+
+        camera.position.z = 5;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            var quaternion = new THREE.Quaternion(q[1], q[2], q[3], -q[0]);
+            document.getElementById("alpha").innerText = alpha;
+            document.getElementById("beta").innerText = beta;
+            document.getElementById("gamma").innerText = gama;
+            document.getElementById("alpha").innerText = alpha;
+            cube.setRotationFromQuaternion(quaternion);
+            // cube.rotation.x = beta / 180 * Math.PI;
+            // cube.rotation.y = gamma / 180 * Math.PI;
+            // cube.rotation.z = -alpha / 180 * Math.PI;
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+
+</html>
